@@ -1,0 +1,15 @@
+# Godot-Cache (wird vom Editor neu erzeugt)
+godot/.godot/
+*.import
+
+# Node / Werkzeuge
+node_modules/
+
+# Lokale Claude-Einstellungen (launch.json bleibt im Repo)
+.claude/settings.local.json
+
+# Betriebssystem / Editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/

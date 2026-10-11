@@ -1,0 +1,20 @@
+{
+  "name": "wien",
+  "size": 3501,
+  "cell": 20,
+  "extent": 70000,
+  "minX": -35000,
+  "minZ": -35000,
+  "heightScale": 0.1,
+  "minHeight": 114.7,
+  "maxHeight": 1070.3,
+  "center": {
+    "lat": 48.2085,
+    "lon": 16.373,
+    "lambertX": 625780.0000000002,
+    "lambertY": 483160.00000000006
+  },
+  "crs": "EPSG:31287 (MGI / Austria Lambert)",
+  "source": "Datenquelle: BEV – Digitales Geländehöhenmodell (CC BY 4.0)",
+  "missingPoints": 0
+}
