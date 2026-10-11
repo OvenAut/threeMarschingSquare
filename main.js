@@ -63,7 +63,7 @@ let viewMode = 'cockpit';         // 'cockpit' oder 'free' (Taste V: Kopf frei b
 const head = { yaw: 0, pitch: 0, dragging: false };
 const headRotation = new THREE.Quaternion();
 const headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-let terrainMaterial, contourMaterial, contourDotMaterial, dotSprite, dotAttribute, beams;
+let terrainMaterial, pingMaterial, contourMaterial, contourDotMaterial, dotSprite, dotAttribute, beams;
 
 const uCameraRight = uniform(new THREE.Vector3(1, 0, 0));
 const uCameraUp = uniform(new THREE.Vector3(0, 1, 0));
@@ -145,6 +145,7 @@ function initScene() {
     })();
 
     terrainMaterial = createTerrainMaterial();
+    pingMaterial = createPingMaterial();
     contourMaterial = createContourMaterial();
     contourDotMaterial = createContourDotMaterial();
     createDots();
@@ -166,11 +167,11 @@ function initScene() {
     window.addEventListener('resize', onWindowResize);
 }
 
-// Gelände: selbst unsichtbar (hat die Himmelsfarbe der Blickrichtung), aber deckend.
-// Nur in tiefen Lagen liegt ein schwacher, heller Bodennebel. Drahtgitter nur als Radar-Ping.
+// Stufen-Gelände: selbst unsichtbar (hat die Himmelsfarbe der Blickrichtung), aber deckend.
+// Nur in tiefen Lagen liegt ein schwacher, heller Bodennebel.
 // Senken (unter 0 m) sind flache, dunkelblaue "digitale Seen".
 function createTerrainMaterial() {
-    const material = new THREE.MeshBasicNodeMaterial();
+    const material = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
     const height = attribute('height', 'float');
 
     material.colorNode = Fn(() => {
@@ -182,7 +183,32 @@ function createTerrainMaterial() {
 
         // Bodennebel: nur in Tälern / Niederungen, nach oben ausgeblendet
         const lowland = oneMinus(smoothstep(GROUND_FOG_HEIGHT * 0.15, GROUND_FOG_HEIGHT, height));
-        const ground = mix(sky, cGroundFog, lowland.mul(GROUND_FOG_STRENGTH)).toVar();
+        const ground = mix(sky, cGroundFog, lowland.mul(GROUND_FOG_STRENGTH));
+
+        // Seen: dunkelblau mit Spiegelung des Himmels bei flachem Blick
+        const fresnel = pow(oneMinus(max(viewDir.y, 0)), 4);
+        const water = mix(cLake, hazeColor(viewDir.negate()).mul(1.3), fresnel.mul(0.7));
+
+        // In der Ferne in genau die Himmelsfarbe übergehen -> keine sichtbare Silhouette
+        const surface = mix(ground, water, lake);
+        return mix(surface, sky, fog);
+    })();
+
+    return material;
+}
+
+// Radar-Ping auf dem echten, glatten Gelände: leuchtendes Drahtgitter, additiv über die Stufen
+// gezeichnet (schreibt keine Tiefe). Das glatte Gelände liegt immer auf oder über den Stufen.
+function createPingMaterial() {
+    const material = new THREE.MeshBasicNodeMaterial({
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    const height = attribute('height', 'float');
+    // minimal anheben, damit es dort, wo es die Stufen berührt, nicht flimmert
+    material.positionNode = positionGeometry.add(vec3(0, 0.5, 0));
+
+    material.colorNode = Fn(() => {
+        const lake = oneMinus(step(0, height));
 
         // Drahtgitter, folgt der Oberfläche; in der Ferne ausgeblendet, damit es nicht flimmert
         const g = positionWorld.xz.div(WIRE_SIZE);
@@ -203,15 +229,8 @@ function createTerrainMaterial() {
         const life = oneMinus(smoothstep(0.55, 1, progress));           // Welle verblasst am Ende
         const ping = front.mul(tail).mul(tail).mul(life);
 
-        ground.addAssign(cWire.mul(wireLine).mul(wireFade).mul(ping).mul(1.4).mul(oneMinus(lake)));
-
-        // Seen: dunkelblau mit Spiegelung des Himmels bei flachem Blick
-        const fresnel = pow(oneMinus(max(viewDir.y, 0)), 4);
-        const water = mix(cLake, hazeColor(viewDir.negate()).mul(1.3), fresnel.mul(0.7));
-
-        // In der Ferne in genau die Himmelsfarbe übergehen -> keine sichtbare Silhouette
-        const surface = mix(ground, water, lake);
-        return mix(surface, sky, fog);
+        return cWire.mul(wireLine).mul(wireFade).mul(ping).mul(1.4)
+            .mul(oneMinus(lake)).mul(oneMinus(fogAmount()));
     })();
 
     return material;
@@ -493,15 +512,23 @@ function onChunkBuilt(worker, data) {
 
     // Inzwischen entfernt oder eine andere Detailstufe angefordert -> verwerfen
     if (chunk && chunk.requestedCells === job.cells) {
+        // Deckendes Stufen-Gelände
         const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-        geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
-        geometry.setAttribute('height', new THREE.BufferAttribute(data.heights, 1));
-        geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+        geometry.setAttribute('position', new THREE.BufferAttribute(data.terracePositions, 3));
+        geometry.setAttribute('height', new THREE.BufferAttribute(data.terraceHeights, 1));
         geometry.computeBoundingSphere();
-
         const mesh = new THREE.Mesh(geometry, terrainMaterial);
         mesh.position.set(job.originX, 0, job.originZ);
+
+        // Echtes, glattes Gelände – nur für den Radar-Ping
+        const pingGeometry = new THREE.BufferGeometry();
+        pingGeometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+        pingGeometry.setAttribute('height', new THREE.BufferAttribute(data.heights, 1));
+        pingGeometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+        pingGeometry.computeBoundingSphere();
+        const pingMesh = new THREE.Mesh(pingGeometry, pingMaterial);
+        pingMesh.renderOrder = 1;
+        mesh.add(pingMesh);
 
         addContourObjects(mesh, data);
         scene.add(mesh);
@@ -540,8 +567,13 @@ function addContourObjects(mesh, data) {
 function removeChunkMesh(chunk) {
     if (!chunk.mesh) return;
     scene.remove(chunk.mesh);
-    chunk.mesh.geometry.dispose();
-    for (const child of chunk.mesh.children) child.geometry.dispose();
+    chunk.mesh.traverse((object) => {
+        // Wichtig: Das 'dispose'-Ereignis am Objekt gibt die RenderObjects des WebGPU-Renderers
+        // frei (Pipelines, Bindings, Uniform-Puffer). geometry.dispose() allein tut das nicht ->
+        // ohne diese Zeile wächst der Speicher mit jeder ausgetauschten Kachel.
+        object.dispatchEvent({ type: 'dispose' });
+        object.geometry?.dispose();
+    });
     chunk.mesh = null;
 }
 
@@ -654,7 +686,8 @@ function updateHud(groundHeight) {
     hud.textContent =
         `Tempo ${kmh} km/h   Höhe ${altitude} m   über Grund ${agl} m`
         + (loading > 0 ? `   lade ${loading} Kacheln` : '') + '\n'
-        + `Kacheln ${chunks.size}   GPU-Geometrien ${renderer.info.memory.geometries}\n`
+        + `Kacheln ${chunks.size}   GPU-Geometrien ${renderer.info.memory.geometries}`
+        + `   RenderObjekte ${renderer._objects?._renderObjects?.size ?? '?'}\n`
         + 'W/S Nase runter/hoch   A/D rollen   ↑/↓ Gas/Bremse   Q/E ←/→ gieren   R gerade stellen\n'
         + `V Ansicht: ${viewMode === 'cockpit' ? 'Cockpit' : 'Kopf frei (Maus ziehen)'}   C Kreisflug\n`
         + `Karte ${SEED} (mit ?seed=${SEED} wieder laden)   Mitte ${Math.round(distanceToCenter / 100) / 10} km`;

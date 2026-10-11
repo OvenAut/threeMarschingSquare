@@ -1,7 +1,8 @@
 // Baut im Hintergrund die Geometrie einer Kachel:
-// - glattes Höhenfeld (Wasser/Senken flach auf Höhe 0)
-// - Höhenlinien per Marching-Triangles auf denselben Dreiecken (liegen exakt auf der Fläche)
-// - Schürze am Kachelrand gegen Spalten zwischen Detailstufen
+// - Stufen-Gelände (deckend): flache Ebenen bis zur nächsten Höhenlinie, senkrechte Wände,
+//   Schürze am Kachelrand gegen Spalten zwischen Detailstufen
+// - glattes, echtes Höhenfeld (Wasser/Senken flach auf Höhe 0) – nur für den Radar-Ping
+// - Höhenlinien per Marching-Triangles auf denselben Dreiecken
 // height.js mit derselben Versionsnummer wie der Worker laden (Cache-Busting, siehe index.html)
 const heightModule = import(`./height.js${self.location.search}`);
 let terrainHeight, CONTOUR_STEP, setSeed;
@@ -60,28 +61,93 @@ function buildChunk(originX, originZ, size, cells, contourStyle) {
         }
     }
 
-    // Schürze: Randvertices nach unten kopieren und mit Quads verbinden
-    const addSkirt = (edge) => {
-        const base = positions.length / 3;
-        for (const v of edge) {
-            positions.push(positions[v * 3], positions[v * 3 + 1] - SKIRT_DEPTH, positions[v * 3 + 2]);
-            normals.push(normals[v * 3], normals[v * 3 + 1], normals[v * 3 + 2]);
-            rawHeights.push(rawHeights[v]);
-        }
-        for (let i = 0; i < edge.length - 1; i++) {
-            const top0 = edge[i], top1 = edge[i + 1];
-            const bottom0 = base + i, bottom1 = base + i + 1;
-            indices.push(top0, bottom0, top1, top1, bottom0, bottom1);
+    // ---------------------------------------------------------------------------
+    // Stufen-Gelände: jedes Dreieck des Gitters an den Höhenlinien schneiden.
+    // Bereich zwischen zwei Höhenlinien = flache Ebene auf der unteren Höhe, an der Linie eine
+    // senkrechte Wand bis zur nächsten Ebene. Rohhöhe (für Seen / Bodennebel) wird mitgeführt.
+    // ---------------------------------------------------------------------------
+    const terracePositions = [];
+    const terraceHeights = [];
+    const stepLevel = (s) => Math.floor(s / CONTOUR_STEP) * CONTOUR_STEP;
+    const pushTerrace = (x, y, z, raw) => {
+        terracePositions.push(x, y, z);
+        terraceHeights.push(raw);
+    };
+    const flat = (p, q, r, y) => {
+        pushTerrace(p.x, y, p.z, p.h);
+        pushTerrace(q.x, y, q.z, q.h);
+        pushTerrace(r.x, y, r.z, r.h);
+    };
+    const wall = (p, q, top, bottom) => {
+        pushTerrace(p.x, bottom, p.z, bottom);
+        pushTerrace(q.x, bottom, q.z, bottom);
+        pushTerrace(q.x, top, q.z, top);
+        pushTerrace(p.x, bottom, p.z, bottom);
+        pushTerrace(q.x, top, q.z, top);
+        pushTerrace(p.x, top, p.z, top);
+    };
+    // Schnittpunkt auf der Kante u -> v, an dem die sichtbare Höhe s die Stufe erreicht
+    const cutSurface = (u, v, level) => {
+        const t = (level - u.s) / (v.s - u.s);
+        return { x: u.x + (v.x - u.x) * t, z: u.z + (v.z - u.z) * t, s: level, h: u.h + (v.h - u.h) * t };
+    };
+    const terraceTriangle = (A, B, C) => {
+        const sMin = Math.min(A.s, B.s, C.s);
+        const sMax = Math.max(A.s, B.s, C.s);
+        const base = stepLevel(sMin);
+        flat(A, B, C, base);
+        for (let level = base + CONTOUR_STEP; level < sMax; level += CONTOUR_STEP) {
+            const above = [], below = [];
+            for (const p of [A, B, C]) (p.s >= level ? above : below).push(p);
+            if (above.length === 3) {
+                flat(A, B, C, level);
+            } else if (above.length === 1) {
+                const e1 = cutSurface(above[0], below[0], level);
+                const e2 = cutSurface(above[0], below[1], level);
+                flat(above[0], e1, e2, level);
+                wall(e1, e2, level, level - CONTOUR_STEP);
+            } else if (above.length === 2) {
+                const e1 = cutSurface(above[0], below[0], level);
+                const e2 = cutSurface(above[1], below[0], level);
+                flat(above[0], above[1], e2, level);
+                flat(above[0], e2, e1, level);
+                wall(e1, e2, level, level - CONTOUR_STEP);
+            }
         }
     };
-    const north = [], south = [], west = [], east = [];
-    for (let i = 0; i <= cells; i++) {
-        north.push(i);
-        south.push(cells * stride + i);
-        west.push(i * stride);
-        east.push(i * stride + cells);
+    const terraceVertex = (x, z) => ({ x: x * cell, z: z * cell, s: surfaceAt(x, z), h: heightAt(x, z) });
+    for (let z = 0; z < cells; z++) {
+        for (let x = 0; x < cells; x++) {
+            const a = terraceVertex(x, z), b = terraceVertex(x + 1, z);
+            const c = terraceVertex(x, z + 1), d = terraceVertex(x + 1, z + 1);
+            terraceTriangle(a, c, b);
+            terraceTriangle(b, c, d);
+        }
     }
-    [north, south, west, east].forEach(addSkirt);
+
+    // Schürzen am Kachelrand: folgen dem Stufenprofil der Kante nach unten
+    const skirtEdge = (u, v) => {
+        const ts = [0, 1];
+        const lo = Math.min(u.s, v.s), hi = Math.max(u.s, v.s);
+        for (let level = stepLevel(lo) + CONTOUR_STEP; level < hi; level += CONTOUR_STEP) {
+            ts.push((level - u.s) / (v.s - u.s));
+        }
+        ts.sort((m, n) => m - n);
+        for (let i = 0; i < ts.length - 1; i++) {
+            const t0 = ts[i], t1 = ts[i + 1];
+            if (t1 - t0 < 1e-6) continue;
+            const y = stepLevel(u.s + (v.s - u.s) * (t0 + t1) / 2);
+            const p = { x: u.x + (v.x - u.x) * t0, z: u.z + (v.z - u.z) * t0 };
+            const q = { x: u.x + (v.x - u.x) * t1, z: u.z + (v.z - u.z) * t1 };
+            wall(p, q, y, y - SKIRT_DEPTH);
+        }
+    };
+    for (let i = 0; i < cells; i++) {
+        skirtEdge(terraceVertex(i, 0), terraceVertex(i + 1, 0));
+        skirtEdge(terraceVertex(i, cells), terraceVertex(i + 1, cells));
+        skirtEdge(terraceVertex(0, i), terraceVertex(0, i + 1));
+        skirtEdge(terraceVertex(cells, i), terraceVertex(cells, i + 1));
+    }
 
     // Höhenlinien
     const linePositions = [];
@@ -154,6 +220,8 @@ function buildChunk(originX, originZ, size, cells, contourStyle) {
         normals: new Float32Array(normals),
         heights: new Float32Array(rawHeights),
         indices: new Uint32Array(indices),
+        terracePositions: new Float32Array(terracePositions),
+        terraceHeights: new Float32Array(terraceHeights),
         linePositions: new Float32Array(linePositions),
         lineLevels: new Float32Array(lineLevels),
         dotCenters: new Float32Array(dotCenters),
