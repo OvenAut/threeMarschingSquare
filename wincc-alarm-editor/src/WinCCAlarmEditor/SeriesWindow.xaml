@@ -1,0 +1,91 @@
+<Window x:Class="WinCCAlarmEditor.SeriesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Bitmeldungen als Serie erzeugen" Width="600" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="0,3" />
+            <Setter Property="Padding" Value="2" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Margin" Value="0,3" />
+        </Style>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,3,12,3" />
+        </Style>
+    </Window.Resources>
+    <Grid Margin="14">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.ColumnSpan="2" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="DimGray"
+                   Text="Platzhalter: {n} laufende Nummer ab 1, {id} Meldungs-ID, {w} Variablen-Index, {bit} Bitnummer. Mit Format: {n:000} → 001." />
+
+        <TextBlock Grid.Row="1" Style="{StaticResource Label}" Text="Anzahl Meldungen" />
+        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CountBox" Text="16" TextChanged="Input_TextChanged" />
+
+        <TextBlock Grid.Row="2" Style="{StaticResource Label}" Text="Erste ID" />
+        <TextBox Grid.Row="2" Grid.Column="1" x:Name="StartIdBox" Text="1" TextChanged="Input_TextChanged" />
+
+        <TextBlock Grid.Row="3" Style="{StaticResource Label}" Text="Name-Muster" />
+        <TextBox Grid.Row="3" Grid.Column="1" x:Name="NameBox" Text="Alarm_{id}" TextChanged="Input_TextChanged" />
+
+        <TextBlock Grid.Row="4" Style="{StaticResource Label}" Text="Trigger-Variable" />
+        <TextBox Grid.Row="4" Grid.Column="1" x:Name="TagBox" Text="Alarmwort_{w}" TextChanged="Input_TextChanged"
+                 ToolTip="z. B. Alarmwort_{w}, &quot;DB_HMI&quot;.Alarme[{w}] oder HMI_Alarme_{w:00}" />
+
+        <TextBlock Grid.Row="5" Style="{StaticResource Label}" Text="Erster Wert für {w}" />
+        <TextBox Grid.Row="5" Grid.Column="1" x:Name="StartWordBox" Text="0" TextChanged="Input_TextChanged" />
+
+        <TextBlock Grid.Row="6" Style="{StaticResource Label}" Text="Bits pro Variable" />
+        <ComboBox Grid.Row="6" Grid.Column="1" x:Name="BitsCombo" SelectedIndex="1" SelectionChanged="Input_SelectionChanged"
+                  ToolTip="8 = Byte, 16 = Word/Int, 32 = DWord/DInt">
+            <ComboBoxItem Content="8" />
+            <ComboBoxItem Content="16" />
+            <ComboBoxItem Content="32" />
+        </ComboBox>
+
+        <TextBlock Grid.Row="7" Style="{StaticResource Label}" Text="Erstes Bit" />
+        <TextBox Grid.Row="7" Grid.Column="1" x:Name="StartBitBox" Text="0" TextChanged="Input_TextChanged" />
+
+        <TextBlock Grid.Row="8" Style="{StaticResource Label}" Text="Meldeklasse" />
+        <ComboBox Grid.Row="8" Grid.Column="1" x:Name="ClassCombo" IsEditable="True" />
+
+        <TextBlock Grid.Row="9" Style="{StaticResource Label}" Text="Text-Muster" />
+        <TextBox Grid.Row="9" Grid.Column="1" x:Name="TextPatternBox" Text="Störung {n}" TextChanged="Input_TextChanged" />
+
+        <TextBlock Grid.Row="10" Style="{StaticResource Label}" VerticalAlignment="Top" TextWrapping="Wrap" Width="130"
+                   Text="Meldetexte (optional, eine Zeile pro Meldung – z. B. aus Excel einfügen)" />
+        <TextBox Grid.Row="10" Grid.Column="1" x:Name="TextsBox" Height="140" AcceptsReturn="True" AcceptsTab="False"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                 TextChanged="TextsBox_TextChanged" />
+
+        <Border Grid.Row="11" Grid.ColumnSpan="2" Margin="0,10,0,0" Padding="8" Background="#FFF3F6FA" BorderBrush="#FFD5DDE8" BorderThickness="1">
+            <TextBlock x:Name="PreviewText" TextWrapping="Wrap" FontFamily="Consolas" />
+        </Border>
+
+        <StackPanel Grid.Row="12" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="OkButton" Content="Erzeugen" IsDefault="True" Width="100" Click="Ok_Click" />
+            <Button Content="Abbrechen" IsCancel="True" Width="100" />
+        </StackPanel>
+    </Grid>
+</Window>

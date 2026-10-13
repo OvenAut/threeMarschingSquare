@@ -1,0 +1,39 @@
+name: WinCC Meldungseditor
+
+on:
+  push:
+    paths:
+      - 'wincc-alarm-editor/**'
+      - '.github/workflows/wincc-alarm-editor.yml'
+  pull_request:
+    paths:
+      - 'wincc-alarm-editor/**'
+      - '.github/workflows/wincc-alarm-editor.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: wincc-alarm-editor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Tests
+        run: dotnet test WinCCAlarmEditor.sln -c Release
+
+      - name: Veröffentlichen (eine EXE, ohne .NET-Installation lauffähig)
+        run: >
+          dotnet publish src/WinCCAlarmEditor/WinCCAlarmEditor.csproj -c Release -r win-x64
+          --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -o publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinCCAlarmEditor-win-x64
+          path: wincc-alarm-editor/publish/WinCCAlarmEditor.exe
