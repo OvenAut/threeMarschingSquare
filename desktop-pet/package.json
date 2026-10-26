@@ -1,0 +1,24 @@
+{
+  "name": "glibber-desktop-pet",
+  "productName": "Glibber",
+  "version": "0.1.0",
+  "description": "Desktop-Haustier für Windows: ein Glibber-Schleim, gerendert mit three.js (WebGPU) und TSL",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable nsis"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "de.oo75.glibber",
+    "files": ["main.cjs", "preload.cjs", "index.html", "src/**/*", "node_modules/three/build/**/*"],
+    "win": { "target": ["portable", "nsis"] }
+  }
+}
